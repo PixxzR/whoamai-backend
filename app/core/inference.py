@@ -29,9 +29,7 @@ class ModelManager:
         self._load_transfer()
 
         if not self.models:
-            logger.warning(
-                "No models found. Running in DEMO mode."
-            )
+            logger.warning("No models found. Running in DEMO mode.")
             self._demo_mode = True
         else:
             logger.info("Loaded %d models", len(self.models))
