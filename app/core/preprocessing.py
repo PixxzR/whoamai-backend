@@ -1,7 +1,6 @@
 import io
 import logging
 
-import numpy as np
 import torch
 from PIL import Image
 

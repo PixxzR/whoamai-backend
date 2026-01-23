@@ -1,7 +1,6 @@
 import logging
 
 import numpy as np
-import torch
 from facenet_pytorch import MTCNN
 from PIL import Image
 

@@ -29,7 +29,9 @@ class ModelManager:
         self._load_transfer()
 
         if not self.models:
-            logger.warning("No models found. Running in DEMO mode (random predictions).")
+            logger.warning(
+                "No models found. Running in DEMO mode."
+            )
             self._demo_mode = True
         else:
             logger.info("Loaded %d models", len(self.models))
@@ -41,7 +43,11 @@ class ModelManager:
             return
         for model_path in specialized_dir.glob("*.pth"):
             try:
-                model = torch.load(model_path, map_location=self.device, weights_only=False)
+                model = torch.load(
+                    model_path,
+                    map_location=self.device,
+                    weights_only=False,
+                )
                 if hasattr(model, "eval"):
                     model.eval()
                 self.models[f"specialized_{model_path.stem}"] = model
@@ -56,7 +62,11 @@ class ModelManager:
             return
         for model_path in multitask_dir.glob("*.pth"):
             try:
-                model = torch.load(model_path, map_location=self.device, weights_only=False)
+                model = torch.load(
+                    model_path,
+                    map_location=self.device,
+                    weights_only=False,
+                )
                 if hasattr(model, "eval"):
                     model.eval()
                 self.models["multitask"] = model
@@ -71,7 +81,11 @@ class ModelManager:
             return
         for model_path in transfer_dir.glob("*.pth"):
             try:
-                model = torch.load(model_path, map_location=self.device, weights_only=False)
+                model = torch.load(
+                    model_path,
+                    map_location=self.device,
+                    weights_only=False,
+                )
                 if hasattr(model, "eval"):
                     model.eval()
                 self.models["transfer"] = model
@@ -108,10 +122,26 @@ class ModelManager:
         emotion = random.choice(EMOTION_LABELS)
 
         return [
-            {"label": "age", "value": age, "confidence": round(random.uniform(0.6, 0.95), 3)},
-            {"label": "gender", "value": gender, "confidence": round(random.uniform(0.7, 0.99), 3)},
-            {"label": "ethnicity", "value": ethnicity, "confidence": round(random.uniform(0.5, 0.9), 3)},
-            {"label": "emotion", "value": emotion, "confidence": round(random.uniform(0.5, 0.92), 3)},
+            {
+                "label": "age",
+                "value": age,
+                "confidence": round(random.uniform(0.6, 0.95), 3),
+            },
+            {
+                "label": "gender",
+                "value": gender,
+                "confidence": round(random.uniform(0.7, 0.99), 3),
+            },
+            {
+                "label": "ethnicity",
+                "value": ethnicity,
+                "confidence": round(random.uniform(0.5, 0.9), 3),
+            },
+            {
+                "label": "emotion",
+                "value": emotion,
+                "confidence": round(random.uniform(0.5, 0.92), 3),
+            },
         ]
 
     @property
