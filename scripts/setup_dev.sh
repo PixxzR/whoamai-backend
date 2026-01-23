@@ -11,6 +11,8 @@ source venv/bin/activate
 
 # Install dependencies
 pip install --upgrade pip
+pip install torch torchvision
+pip install facenet-pytorch
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
 

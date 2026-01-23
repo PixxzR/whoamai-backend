@@ -1,0 +1,6 @@
+# ML dependencies - install torch first, then the rest
+# CPU only (CI/dev):  pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+# Default (auto):     pip install torch torchvision
+torch
+torchvision
+facenet-pytorch

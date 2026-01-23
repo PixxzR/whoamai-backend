@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.10", "3.11"]
+        python-version: ["3.11", "3.12"]
 
     steps:
       - uses: actions/checkout@v4
@@ -20,9 +20,13 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
 
+      - name: Install PyTorch (CPU)
+        run: pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+
       - name: Install dependencies
         run: |
           pip install --upgrade pip
+          pip install facenet-pytorch
           pip install -r requirements.txt -r requirements-dev.txt
 
       - name: Lint with flake8
