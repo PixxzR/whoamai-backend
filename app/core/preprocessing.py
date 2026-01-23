@@ -2,6 +2,7 @@ import io
 import logging
 
 import numpy as np
+import torch
 from PIL import Image
 
 logger = logging.getLogger(__name__)
@@ -16,49 +17,25 @@ def load_image_from_bytes(image_bytes: bytes) -> Image.Image:
     return Image.open(io.BytesIO(image_bytes)).convert("RGB")
 
 
-def resize_image(image: Image.Image, size: tuple[int, int] = TARGET_SIZE) -> Image.Image:
-    """Redimensionne l'image à la taille cible."""
-    return image.resize(size, Image.BILINEAR)
+def validate_image(image_bytes: bytes, max_size_mb: int = 10) -> None:
+    """Valide la taille de l'image."""
+    size_mb = len(image_bytes) / (1024 * 1024)
+    if size_mb > max_size_mb:
+        raise ValueError(f"Image too large: {size_mb:.1f}MB (max {max_size_mb}MB)")
 
 
-def normalize(image_array: np.ndarray) -> np.ndarray:
+def normalize_face_tensor(face_tensor: torch.Tensor) -> torch.Tensor:
     """
-    Normalise un array image (H, W, C) avec mean/std ImageNet.
-
-    Args:
-        image_array: Array numpy float32 en [0, 1].
-
-    Returns:
-        Array normalisé.
+    Normalise un tensor visage (C, H, W) avec mean/std ImageNet.
+    Le tensor en entrée est en [0, 255] (sortie MTCNN post_process=False).
     """
-    mean = np.array(MEAN, dtype=np.float32)
-    std = np.array(STD, dtype=np.float32)
-    return (image_array - mean) / std
+    # Convertir en [0, 1]
+    tensor = face_tensor.float() / 255.0
 
+    # Normaliser par canal
+    mean = torch.tensor(MEAN).view(3, 1, 1)
+    std = torch.tensor(STD).view(3, 1, 1)
+    tensor = (tensor - mean) / std
 
-def preprocess_face(image: Image.Image) -> np.ndarray:
-    """
-    Pipeline complet de preprocessing pour un visage détecté.
-
-    Args:
-        image: Image PIL du visage croppé.
-
-    Returns:
-        Array numpy prêt pour l'inférence (1, C, H, W).
-    """
-    # Resize
-    image = resize_image(image)
-
-    # To float array [0, 1]
-    image_array = np.array(image, dtype=np.float32) / 255.0
-
-    # Normalize
-    image_array = normalize(image_array)
-
-    # HWC -> CHW
-    image_array = np.transpose(image_array, (2, 0, 1))
-
-    # Add batch dimension
-    image_array = np.expand_dims(image_array, axis=0)
-
-    return image_array
+    # Ajouter dimension batch
+    return tensor.unsqueeze(0)

@@ -1,58 +1,65 @@
 import logging
-from pathlib import Path
 
 import numpy as np
+import torch
+from facenet_pytorch import MTCNN
 from PIL import Image
 
 logger = logging.getLogger(__name__)
 
 
-class MTCNNDetector:
+class FaceDetector:
     """Détecteur de visages basé sur MTCNN."""
 
     def __init__(self, device: str = "cpu"):
         self.device = device
-        self.detector = None
-        # TODO: initialiser MTCNN depuis facenet_pytorch
+        self.detector: MTCNN | None = None
 
     def load(self):
         """Charge le modèle MTCNN."""
-        # TODO: from facenet_pytorch import MTCNN
-        # self.detector = MTCNN(device=self.device, keep_all=False)
+        self.detector = MTCNN(
+            image_size=160,
+            margin=20,
+            keep_all=False,
+            device=self.device,
+            post_process=False,
+        )
         logger.info("MTCNN detector loaded on %s", self.device)
 
     def detect(self, image: Image.Image) -> dict | None:
         """
         Détecte un visage dans l'image.
 
-        Args:
-            image: Image PIL en entrée.
-
         Returns:
-            Dict avec 'box' (coordonnées), 'confidence', 'face' (crop PIL)
+            Dict avec 'box', 'confidence', 'face' (tensor)
             ou None si aucun visage détecté.
         """
-        # TODO: implémenter détection
-        # boxes, probs = self.detector.detect(image)
-        # if boxes is None:
-        #     return None
-        # box = boxes[0]
-        # face = image.crop(box)
-        # return {"box": box.tolist(), "confidence": float(probs[0]), "face": face}
-        logger.warning("detect() not implemented, returning None")
-        return None
+        if self.detector is None:
+            raise RuntimeError("Detector not loaded. Call load() first.")
 
-    def detect_and_align(self, image: Image.Image) -> np.ndarray | None:
-        """
-        Détecte, aligne et retourne le visage sous forme de tensor.
+        boxes, probs = self.detector.detect(image)
 
-        Args:
-            image: Image PIL en entrée.
+        if boxes is None or len(boxes) == 0:
+            return None
 
-        Returns:
-            Tensor du visage aligné ou None.
-        """
-        # TODO: implémenter détection + alignement
-        # return self.detector(image)
-        logger.warning("detect_and_align() not implemented, returning None")
-        return None
+        # Prendre le visage avec la plus haute confiance
+        best_idx = int(np.argmax(probs))
+        box = boxes[best_idx]
+        confidence = float(probs[best_idx])
+
+        # Extraire le visage aligné comme tensor
+        face_tensor = self.detector.extract(image, np.array([box]), save_path=None)
+
+        if face_tensor is None:
+            return None
+
+        return {
+            "box": {
+                "x1": float(box[0]),
+                "y1": float(box[1]),
+                "x2": float(box[2]),
+                "y2": float(box[3]),
+            },
+            "confidence": confidence,
+            "face_tensor": face_tensor[0],  # (C, H, W) tensor
+        }

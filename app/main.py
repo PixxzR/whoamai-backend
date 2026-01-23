@@ -7,6 +7,8 @@ from fastapi.responses import JSONResponse
 
 from app.api.routes import health, predict
 from app.config import settings
+from app.core.detection import FaceDetector
+from app.core.inference import ModelManager
 
 logging.basicConfig(
     level=logging.DEBUG if settings.debug else logging.INFO,
@@ -14,17 +16,23 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Instances globales
+face_detector = FaceDetector(device=settings.device)
+model_manager = ModelManager(models_dir=settings.models_dir, device=settings.device)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
     logger.info("Device: %s", settings.device)
-    # TODO: charger les modèles ici via ModelManager
+    face_detector.load()
+    model_manager.load_all()
+    if model_manager.is_demo_mode:
+        logger.info("DEMO MODE: predictions are random (no .pth models found)")
     yield
     # Shutdown
     logger.info("Shutting down %s", settings.app_name)
-    # TODO: libérer les ressources modèles
 
 
 app = FastAPI(
