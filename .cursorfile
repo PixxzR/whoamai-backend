@@ -1,0 +1,296 @@
+# FaceSense API Backend
+# Cursor Rules pour développement Python/FastAPI
+
+## Context
+
+Backend API Python/FastAPI pour prédictions faciales (âge, genre, ethnicité).
+Modèles PyTorch CPU. Déploiement VPS Hostinger + dev local.
+
+## Tech Stack
+
+Python 3.10+, FastAPI, PyTorch 2.1, MTCNN, Uvicorn, Gunicorn, Nginx
+
+## Project Structure
+```
+app/
+├── main.py              # FastAPI entry
+├── config.py            # Settings
+├── api/routes/          # Endpoints
+├── core/                # Business logic
+├── schemas/             # Pydantic
+└── utils/
+
+models/                  # .pth files
+tests/
+scripts/
+```
+
+## Endpoints
+```
+GET  /health
+POST /predict/specialized
+POST /predict/multitask
+POST /predict/transfer
+GET  /models/info
+```
+
+## Response Format
+```json
+{
+  "success": true,
+  "data": {
+    "age": 28.5,
+    "gender": "Male",
+    "gender_confidence": 0.92,
+    "ethnicity": "Asian",
+    "ethnicity_confidence": 0.78,
+    "ethnicity_class_id": 2
+  },
+  "metadata": {
+    "strategy": "multitask",
+    "inference_time_ms": 180,
+    "face_detection": {...}
+  }
+}
+```
+
+## Code Style
+
+- Type hints obligatoires
+- Docstrings Google style
+- Black formatting
+- Isort pour imports
+- Max line length: 100
+- Snake_case pour variables/fonctions
+- PascalCase pour classes
+
+## Error Handling
+```python
+from fastapi import HTTPException
+
+# 400 Bad Request
+raise HTTPException(400, detail="Invalid image format")
+
+# 422 Unprocessable Entity
+raise HTTPException(422, detail="No face detected")
+
+# 500 Internal Server Error
+raise HTTPException(500, detail="Inference failed")
+```
+
+## Dependencies (.env)
+```env
+APP_NAME=FaceSense API
+DEBUG=false
+HOST=0.0.0.0
+PORT=8000
+MODELS_DIR=./models
+DEVICE=cpu
+MAX_IMAGE_SIZE_MB=10
+```
+
+## Model Loading Pattern
+```python
+# Charger au startup, pas par requête
+class ModelManager:
+    def __init__(self):
+        self.models = {}
+    
+    def load_all(self):
+        self.models['age'] = torch.load('models/specialized/age.pth')
+        self.models['age'].eval()
+        # ...
+    
+    @torch.no_grad()
+    def predict(self, image, strategy):
+        # ...
+```
+
+## Image Processing
+```python
+from PIL import Image
+import torch
+import torchvision.transforms as T
+
+transform = T.Compose([
+    T.Resize((224, 224)),
+    T.ToTensor(),
+    T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+])
+
+# Usage
+img = Image.open(file).convert('RGB')
+tensor = transform(img).unsqueeze(0)
+```
+
+## MTCNN Detection
+```python
+from facenet_pytorch import MTCNN
+
+mtcnn = MTCNN(keep_all=False, device='cpu')
+
+def detect_face(image: Image.Image):
+    boxes, probs = mtcnn.detect(image)
+    if boxes is None:
+        raise NoFaceDetectedException()
+    return boxes[0], probs[0]
+```
+
+## FastAPI Patterns
+```python
+from fastapi import FastAPI, UploadFile, File, Depends
+
+app = FastAPI(title="FaceSense API")
+
+@app.post("/predict/multitask")
+async def predict_multitask(
+    file: UploadFile = File(...),
+    model_manager: ModelManager = Depends(get_model_manager)
+):
+    # Validation
+    if file.size > MAX_SIZE:
+        raise HTTPException(400, "File too large")
+    
+    # Process
+    image = Image.open(file.file)
+    result = model_manager.predict(image, "multitask")
+    
+    return PredictionResponse(**result)
+```
+
+## Logging
+```python
+from loguru import logger
+
+logger.add("logs/api.log", rotation="1 day", retention="7 days")
+
+# Usage
+logger.info("Model loaded successfully")
+logger.error(f"Inference failed: {e}")
+```
+
+## Testing
+```python
+from fastapi.testclient import TestClient
+
+client = TestClient(app)
+
+def test_health():
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
+
+def test_predict():
+    with open("test_image.jpg", "rb") as f:
+        response = client.post(
+            "/predict/multitask",
+            files={"file": f}
+        )
+    assert response.status_code == 200
+```
+
+## Development Commands
+```bash
+# Setup
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Run dev
+uvicorn app.main:app --reload
+
+# Test
+pytest tests/ -v
+
+# Format
+black app/
+isort app/
+
+# Lint
+flake8 app/
+mypy app/
+```
+
+## Production Deployment
+```bash
+# Gunicorn with Uvicorn workers
+gunicorn -w 4 -k uvicorn.workers.UvicornWorker \
+  --bind 0.0.0.0:8000 \
+  --timeout 30 \
+  app.main:app
+```
+
+## Performance Tips
+
+- Load models once at startup
+- Use torch.no_grad() for inference
+- Enable torch.set_num_threads(4)
+- Clear GPU cache if using CUDA
+- Use async/await for I/O ops
+
+## Security
+
+- Validate file types (JPEG, PNG only)
+- Limit file size (10 MB)
+- Strip EXIF data
+- Rate limit endpoints
+- Use HTTPS in production
+- Configure CORS properly
+
+## Priorities
+
+1. Basic FastAPI app + /health
+2. MTCNN face detection
+3. Model loading + inference
+4. /predict endpoints (3 strategies)
+5. Error handling
+6. Tests
+7. VPS deployment
+
+## Common Issues
+
+**Issue**: "Model not found"
+**Fix**: Check MODELS_DIR path in .env
+
+**Issue**: "No face detected"
+**Fix**: Validate image quality, lighting, face size
+
+**Issue**: "Out of memory"
+**Fix**: Reduce batch size, use smaller models
+
+**Issue**: "Slow inference"
+**Fix**: Check CPU usage, optimize preprocessing
+
+## Monitoring
+```bash
+# Check logs
+tail -f logs/api.log
+
+# Check process
+ps aux | grep gunicorn
+
+# Check port
+netstat -tlnp | grep 8000
+
+# Restart
+sudo systemctl restart facesense-api
+```
+
+## Documentation
+
+- Auto-generated: http://localhost:8000/docs (Swagger)
+- ReDoc: http://localhost:8000/redoc
+
+## Notes
+
+- Models are CPU-only (no GPU on VPS)
+- One image per request (no batching)
+- Timeout: 30 seconds max
+- Max image: 10 MB
+- Expected latency: 300-800ms cloud mode
+
+## Resources
+
+- FastAPI: https://fastapi.tiangolo.com/
+- PyTorch: https://pytorch.org/
+- MTCNN: https://github.com/timesler/facenet-pytorch

@@ -1,0 +1,601 @@
+# FaceSense API - Backend FastAPI
+# Configuration Claude Code pour développement backend uniquement
+
+## Contexte Projet
+
+API REST Python/FastAPI pour prédictions faciales (âge, genre, ethnicité).
+Déploiement: VPS Hostinger KVM + développement local.
+Modèles: PyTorch (.pth) avec 3 stratégies de modélisation.
+
+## Stack Technique
+
+- **Python**: 3.10+
+- **Framework**: FastAPI 0.104+
+- **Server**: Uvicorn (dev) / Gunicorn + Uvicorn workers (prod)
+- **ML**: PyTorch 2.1.0, MTCNN (facenet-pytorch)
+- **Image**: Pillow, OpenCV, NumPy
+
+## Structure Projet
+```
+facesense-api/
+├── app/
+│   ├── main.py                 # FastAPI app
+│   ├── config.py               # Config (.env)
+│   ├── api/
+│   │   └── routes/
+│   │       ├── health.py       # GET /health
+│   │       ├── predict.py      # POST /predict/{strategy}
+│   │       └── models.py       # GET /models/info
+│   ├── core/
+│   │   ├── detection.py        # MTCNN wrapper
+│   │   ├── preprocessing.py    # Image preprocessing
+│   │   ├── inference.py        # PyTorch inference
+│   │   └── postprocessing.py   # Results formatting
+│   ├── schemas/
+│   │   ├── request.py          # Pydantic request
+│   │   └── response.py         # Pydantic response
+│   └── utils/
+│       ├── image.py
+│       └── logger.py
+├── models/                     # Fichiers .pth
+│   ├── specialized/
+│   │   ├── age_resnet50.pth
+│   │   ├── gender_efficientnet_b3.pth
+│   │   └── ethnicity_resnet50.pth
+│   ├── multitask/
+│   │   └── multitask_efficientnet_b2.pth
+│   └── transfer/
+│       └── transfer_resnet50.pth
+├── tests/
+├── scripts/
+│   ├── download_models.sh
+│   └── test_inference.py
+├── .env
+├── .env.example
+├── requirements.txt
+├── Dockerfile
+└── README.md
+```
+
+## Endpoints API
+
+### Base URLs
+```
+Dev:  http://localhost:8000
+Prod: https://api.votredomaine.com
+```
+
+### Routes
+
+**GET /health**
+```json
+Response 200:
+{
+  "status": "ok",
+  "version": "1.0.0",
+  "models_loaded": 9,
+  "uptime": 3600.5
+}
+```
+
+**POST /predict/specialized**
+```bash
+curl -X POST http://localhost:8000/predict/specialized \
+  -F "file=@image.jpg"
+
+Response 200:
+{
+  "success": true,
+  "data": {
+    "age": 28.5,
+    "gender": "Male",
+    "gender_confidence": 0.92,
+    "ethnicity": "Asian",
+    "ethnicity_confidence": 0.78,
+    "ethnicity_class_id": 2
+  },
+  "metadata": {
+    "strategy": "specialized",
+    "model_version": "1.0.0",
+    "inference_time_ms": 180,
+    "face_detection": {
+      "bounding_box": {"x": 320, "y": 180, "width": 280, "height": 340},
+      "confidence": 0.998
+    }
+  }
+}
+```
+
+**POST /predict/multitask**
+- Même format que /specialized
+- Stratégie: "multitask"
+
+**POST /predict/transfer**
+- Même format que /specialized
+- Stratégie: "transfer_learning"
+
+**GET /models/info**
+```json
+Response 200:
+{
+  "success": true,
+  "data": {
+    "specialized": {
+      "age": {"architecture": "ResNet50", "size_mb": 98.5, ...},
+      "gender": {...},
+      "ethnicity": {...}
+    },
+    "multitask": {...},
+    "transfer": {...}
+  }
+}
+```
+
+## Schémas Pydantic
+
+### Request
+```python
+# Pas de schéma spécifique, multipart/form-data avec File
+```
+
+### Response
+```python
+class FaceBoundingBox(BaseModel):
+    x: int
+    y: int
+    width: int
+    height: int
+
+class FaceDetection(BaseModel):
+    bounding_box: FaceBoundingBox
+    confidence: float
+
+class PredictionData(BaseModel):
+    age: float
+    gender: str  # "Male" | "Female"
+    gender_confidence: float
+    ethnicity: str  # "White" | "Black" | "Asian" | "Indian" | "Others"
+    ethnicity_confidence: float
+    ethnicity_class_id: int  # 0-4
+
+class PredictionMetadata(BaseModel):
+    strategy: str
+    model_version: str
+    inference_time_ms: int
+    face_detection: FaceDetection
+
+class PredictionResponse(BaseModel):
+    success: bool
+    data: PredictionData
+    metadata: PredictionMetadata
+
+class ErrorResponse(BaseModel):
+    success: bool = False
+    error: dict
+    # error: {"code": str, "message": str, "details": str}
+```
+
+## Architecture Modèles PyTorch
+
+### Stratégie 1: Spécialisés (3 modèles)
+```python
+# age_resnet50.pth
+class AgeModel(nn.Module):
+    backbone: ResNet50
+    regressor: Linear layers
+    output: 1 float (âge)
+
+# gender_efficientnet_b3.pth
+class GenderModel(nn.Module):
+    backbone: EfficientNetB3
+    classifier: Linear layers
+    output: 2 logits (Male/Female)
+
+# ethnicity_resnet50.pth
+class EthnicityModel(nn.Module):
+    backbone: ResNet50
+    classifier: Linear layers
+    output: 5 logits (classes)
+```
+
+### Stratégie 2: Multi-tâche (1 modèle)
+```python
+# multitask_efficientnet_b2.pth
+class MultiTaskModel(nn.Module):
+    backbone: EfficientNetB2 (partagé)
+    age_head: Linear → 1 output
+    gender_head: Linear → 2 outputs
+    ethnicity_head: Linear → 5 outputs
+```
+
+### Stratégie 3: Transfer Learning (1 modèle)
+```python
+# transfer_resnet50.pth
+class TransferModel(nn.Module):
+    backbone: ResNet50 (ImageNet weights)
+    # Fine-tuned sur UTKFace
+    age_head: ...
+    gender_head: ...
+    ethnicity_head: ...
+```
+
+## Pipeline Traitement
+```
+1. Réception image (multipart/form-data)
+   ↓
+2. Validation (taille < 10MB, format JPEG/PNG)
+   ↓
+3. Chargement PIL Image
+   ↓
+4. Détection visage MTCNN
+   ↓ (si détecté)
+5. Crop visage + marge 20%
+   ↓
+6. Preprocessing:
+   - Resize 224x224
+   - ToTensor
+   - Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+   ↓
+7. Inférence PyTorch (selon stratégie)
+   ↓
+8. Postprocessing:
+   - Âge: clip [0, 100]
+   - Genre: argmax + softmax pour confidence
+   - Ethnicité: argmax + softmax
+   ↓
+9. Construction réponse JSON
+   ↓
+10. Retour 200 OK
+```
+
+## Gestion Erreurs
+```python
+# app/core/exceptions.py
+class NoFaceDetectedException(Exception):
+    """Aucun visage détecté"""
+    pass
+
+class InvalidImageException(Exception):
+    """Image invalide ou corrompue"""
+    pass
+
+class ModelLoadException(Exception):
+    """Échec chargement modèle"""
+    pass
+
+class InferenceException(Exception):
+    """Erreur pendant inférence"""
+    pass
+```
+
+### Codes Erreurs HTTP
+```
+400 Bad Request:
+  - Image manquante
+  - Format invalide
+  - Taille > 10MB
+
+422 Unprocessable Entity:
+  - Aucun visage détecté
+  - Visage trop petit
+  - Multiple visages
+
+500 Internal Server Error:
+  - Erreur modèle
+  - Erreur inférence
+  - Erreur inattendue
+```
+
+## Configuration (.env)
+```env
+# App
+APP_NAME=FaceSense API
+APP_VERSION=1.0.0
+DEBUG=false
+
+# Server
+HOST=0.0.0.0
+PORT=8000
+WORKERS=4
+
+# CORS
+CORS_ORIGINS=["*"]
+
+# Models
+MODELS_DIR=./models
+DEVICE=cpu
+
+# Limits
+MAX_IMAGE_SIZE_MB=10
+INFERENCE_TIMEOUT_SEC=30
+```
+
+## Dépendances (requirements.txt)
+```txt
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+python-multipart==0.0.6
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+torch==2.1.0
+torchvision==0.16.0
+facenet-pytorch==2.5.3
+
+Pillow==10.1.0
+opencv-python==4.8.1.78
+numpy==1.26.2
+
+python-dotenv==1.0.0
+loguru==0.7.2
+```
+
+## Commandes Développement
+
+### Setup Local
+```bash
+# Créer venv
+python3 -m venv venv
+source venv/bin/activate  # Linux/Mac
+# venv\Scripts\activate   # Windows
+
+# Installer deps
+pip install -r requirements.txt
+
+# Télécharger modèles (à créer)
+python scripts/download_models.py
+
+# Lancer serveur dev
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+### Tests
+```bash
+# Test santé
+curl http://localhost:8000/health
+
+# Test prédiction
+curl -X POST http://localhost:8000/predict/multitask \
+  -F "file=@test_image.jpg"
+
+# Tests unitaires
+pytest tests/
+
+# Coverage
+pytest --cov=app tests/
+```
+
+### Déploiement VPS
+
+**1. Setup serveur**
+```bash
+# SSH VPS
+ssh user@your-vps-ip
+
+# Update système
+sudo apt update && sudo apt upgrade -y
+
+# Installer Python 3.10
+sudo apt install python3.10 python3.10-venv python3-pip -y
+
+# Installer Nginx
+sudo apt install nginx -y
+
+# Créer user app
+sudo useradd -m -s /bin/bash facesense
+sudo su - facesense
+```
+
+**2. Déployer app**
+```bash
+# Clone repo
+git clone https://github.com/votreuser/facesense-api.git
+cd facesense-api
+
+# Venv
+python3.10 -m venv venv
+source venv/bin/activate
+
+# Install deps
+pip install -r requirements.txt
+
+# Télécharger modèles
+python scripts/download_models.py
+
+# Config .env
+cp .env.example .env
+nano .env  # Éditer config prod
+```
+
+**3. Systemd service**
+```bash
+# /etc/systemd/system/facesense-api.service
+sudo nano /etc/systemd/system/facesense-api.service
+```
+```ini
+[Unit]
+Description=FaceSense FastAPI
+After=network.target
+
+[Service]
+Type=simple
+User=facesense
+WorkingDirectory=/home/facesense/facesense-api
+Environment="PATH=/home/facesense/facesense-api/venv/bin"
+ExecStart=/home/facesense/facesense-api/venv/bin/gunicorn \
+    -w 4 \
+    -k uvicorn.workers.UvicornWorker \
+    --bind 127.0.0.1:8000 \
+    --timeout 30 \
+    --access-logfile /var/log/facesense/access.log \
+    --error-logfile /var/log/facesense/error.log \
+    app.main:app
+
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target
+```
+
+**4. Nginx reverse proxy**
+```bash
+# /etc/nginx/sites-available/facesense-api
+sudo nano /etc/nginx/sites-available/facesense-api
+```
+```nginx
+upstream facesense_app {
+    server 127.0.0.1:8000;
+}
+
+server {
+    listen 80;
+    server_name api.votredomaine.com;
+    
+    client_max_body_size 10M;
+    
+    location / {
+        proxy_pass http://facesense_app;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 30s;
+        proxy_read_timeout 30s;
+    }
+}
+```
+```bash
+# Activer site
+sudo ln -s /etc/nginx/sites-available/facesense-api /etc/nginx/sites-enabled/
+sudo nginx -t
+sudo systemctl restart nginx
+
+# SSL avec Let's Encrypt (optionnel)
+sudo apt install certbot python3-certbot-nginx -y
+sudo certbot --nginx -d api.votredomaine.com
+```
+
+**5. Démarrer service**
+```bash
+# Créer log dir
+sudo mkdir -p /var/log/facesense
+sudo chown facesense:facesense /var/log/facesense
+
+# Démarrer
+sudo systemctl daemon-reload
+sudo systemctl start facesense-api
+sudo systemctl enable facesense-api
+
+# Vérifier
+sudo systemctl status facesense-api
+curl http://localhost/health
+```
+
+## Logs
+```bash
+# Logs systemd
+sudo journalctl -u facesense-api -f
+
+# Logs app
+tail -f /var/log/facesense/access.log
+tail -f /var/log/facesense/error.log
+```
+
+## Monitoring
+```bash
+# Ressources
+htop
+
+# Ports
+sudo netstat -tlnp | grep 8000
+
+# Restart si besoin
+sudo systemctl restart facesense-api
+```
+
+## Priorités Développement
+
+### Phase 1: Setup Base (Jour 1)
+- [x] Structure projet
+- [ ] FastAPI app minimal
+- [ ] Config .env
+- [ ] Endpoint /health
+
+### Phase 2: Détection Visage (Jour 1-2)
+- [ ] Intégrer MTCNN
+- [ ] Détection + crop visage
+- [ ] Gestion erreurs (no face, multiple faces)
+
+### Phase 3: Inférence (Jour 2-3)
+- [ ] Chargement modèles .pth (3 stratégies)
+- [ ] Preprocessing pipeline
+- [ ] Inférence specialized/multitask/transfer
+- [ ] Postprocessing
+
+### Phase 4: API Routes (Jour 3)
+- [ ] POST /predict/specialized
+- [ ] POST /predict/multitask
+- [ ] POST /predict/transfer
+- [ ] GET /models/info
+- [ ] Schémas Pydantic
+
+### Phase 5: Tests (Jour 4)
+- [ ] Tests unitaires core
+- [ ] Tests API endpoints
+- [ ] Tests avec images réelles
+
+### Phase 6: Déploiement (Jour 4-5)
+- [ ] Dockerfile
+- [ ] Deploy VPS Hostinger
+- [ ] Nginx + SSL
+- [ ] Monitoring
+
+## Notes Importantes
+
+### Performance
+- Chargement modèles: au startup (pas par requête)
+- Utiliser torch.no_grad() pour inférence
+- Batch size = 1 (une image par requête)
+- Timeout 30s max par requête
+
+### Sécurité
+- Rate limiting: 100 req/min per IP
+- CORS configuré
+- Validation taille images
+- Sanitize EXIF data
+- Pas de logs d'images
+
+### Mémoire
+- Modèles en RAM: ~500 MB total
+- Libérer tensors après inférence
+- VPS recommandé: 2 GB RAM minimum
+
+### Debug
+```python
+# Activer logs détaillés
+import logging
+logging.basicConfig(level=logging.DEBUG)
+
+# Test modèle sans API
+python scripts/test_inference.py --image test.jpg --strategy multitask
+```
+
+## Checklist Production
+
+- [ ] DEBUG=false dans .env
+- [ ] CORS origins restreintes
+- [ ] SSL/TLS activé
+- [ ] Logs rotation configurée
+- [ ] Monitoring actif
+- [ ] Backup modèles .pth
+- [ ] Documentation API (Swagger /docs)
+- [ ] Health check monitored
+
+## Ressources
+
+- [FastAPI Docs](https://fastapi.tiangolo.com/)
+- [PyTorch Docs](https://pytorch.org/docs/)
+- [MTCNN](https://github.com/timesler/facenet-pytorch)
+- [Gunicorn](https://docs.gunicorn.org/)

@@ -4,6 +4,9 @@ import logging
 import torch
 from PIL import Image
 
+# Limite à 25 mégapixels pour éviter les bombes de décompression
+Image.MAX_IMAGE_PIXELS = 25_000_000
+
 logger = logging.getLogger(__name__)
 
 TARGET_SIZE = (224, 224)
@@ -23,18 +26,21 @@ def validate_image(image_bytes: bytes, max_size_mb: int = 10) -> None:
         raise ValueError(f"Image too large: {size_mb:.1f}MB (max {max_size_mb}MB)")
 
 
-def normalize_face_tensor(face_tensor: torch.Tensor) -> torch.Tensor:
+def prepare_for_model(face_tensor: torch.Tensor) -> torch.Tensor:
     """
-    Normalise un tensor visage (C, H, W) avec mean/std ImageNet.
-    Le tensor en entrée est en [0, 255] (sortie MTCNN post_process=False).
+    Prépare un tensor visage MTCNN (C, H, W) en [0,255] pour inférence modèle.
+    Resize 160->224 + normalisation ImageNet + batch dim.
     """
-    # Convertir en [0, 1]
+    # face_tensor est (C, H, W) en [0, 255]
     tensor = face_tensor.float() / 255.0
 
-    # Normaliser par canal
-    mean = torch.tensor(MEAN).view(3, 1, 1)
-    std = torch.tensor(STD).view(3, 1, 1)
+    # Resize de 160x160 vers 224x224
+    tensor = tensor.unsqueeze(0)  # (1, C, H, W)
+    tensor = torch.nn.functional.interpolate(tensor, size=TARGET_SIZE, mode="bilinear", align_corners=False)
+
+    # Normaliser avec ImageNet stats
+    mean = torch.tensor(MEAN).view(1, 3, 1, 1)
+    std = torch.tensor(STD).view(1, 3, 1, 1)
     tensor = (tensor - mean) / std
 
-    # Ajouter dimension batch
-    return tensor.unsqueeze(0)
+    return tensor  # (1, C, 224, 224)

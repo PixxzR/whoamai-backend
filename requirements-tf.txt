@@ -1,0 +1,3 @@
+# TensorFlow dependencies for local model training (MobileNetV2 → TFLite)
+# Install: pip install -r requirements-tf.txt
+tensorflow>=2.15

@@ -1,11 +1,12 @@
 import logging
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api.routes import health, predict
+from app.api.routes import dashboard, health, models, predict
 from app.config import settings
 from app.core.detection import FaceDetector
 from app.core.inference import ModelManager
@@ -19,10 +20,13 @@ logger = logging.getLogger(__name__)
 # Instances globales
 face_detector = FaceDetector(device=settings.device)
 model_manager = ModelManager(models_dir=settings.models_dir, device=settings.device)
+# Mutable container pour que les imports 'from app.main import app_state' gardent la ref
+app_state = {"startup_time": time.time()}
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    app_state["startup_time"] = time.time()
     # Startup
     logger.info("Starting %s v%s", settings.app_name, settings.app_version)
     logger.info("Device: %s", settings.device)
@@ -62,9 +66,18 @@ async def global_exception_handler(request: Request, exc: Exception):
     logger.error("Unhandled error: %s", exc, exc_info=True)
     return JSONResponse(
         status_code=500,
-        content={"detail": "Internal server error"},
+        content={
+            "success": False,
+            "error": {
+                "code": "INTERNAL_ERROR",
+                "message": "Internal server error",
+                "details": None,
+            },
+        },
     )
 
 
 app.include_router(health.router, tags=["Health"])
 app.include_router(predict.router, prefix="/predict", tags=["Prediction"])
+app.include_router(models.router, tags=["Models"])
+app.include_router(dashboard.router, tags=["Dashboard"])

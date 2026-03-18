@@ -9,7 +9,11 @@ class Settings(BaseSettings):
     port: int = 8000
     workers: int = 4
 
-    cors_origins: list[str] = ["http://localhost:3000"]
+    cors_origins: list[str] = [
+        "http://localhost:3000",
+        "http://localhost:8080",
+        "http://10.0.2.2:8000",  # Android emulator
+    ]
 
     models_dir: str = "./models"
     device: str = "cpu"

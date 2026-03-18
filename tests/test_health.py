@@ -11,7 +11,9 @@ def test_health_endpoint(client):
     assert "demo_mode" in data
 
 
-def test_health_returns_app_name(client):
+def test_health_returns_uptime(client):
     response = client.get("/health")
     data = response.json()
-    assert data["app_name"] == settings.app_name
+    assert "uptime" in data
+    assert isinstance(data["uptime"], (int, float))
+    assert data["uptime"] >= 0

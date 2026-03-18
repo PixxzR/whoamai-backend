@@ -4,3 +4,6 @@
 torch
 torchvision
 facenet-pytorch
+scikit-learn
+matplotlib
+tqdm
